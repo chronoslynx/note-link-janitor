@@ -19,6 +19,13 @@ interface Note {
   parseTree: MDAST.Root;
 }
 
+function try_(promise) {
+   return promise.then(data => {
+      return [null, data];
+   })
+   .catch(err => [err]);
+}
+
 async function readNote(notePath: string): Promise<Note> {
   const noteContents = await fs.promises.readFile(notePath, {
     encoding: "utf-8"
@@ -50,7 +57,15 @@ export default async function readAllNotes(
     .map(entry => path.join(noteFolderPath, entry.name));
 
   const noteEntries = await Promise.all(
-    notePaths.map(async notePath => [notePath, await readNote(notePath)])
+      notePaths.map(async notePath => {
+          let err, noteContents;
+          [err, noteContents] = await try_(readNote(notePath))
+          if (err) {
+              console.log(`failed to read ${notePath}: ${err}`)
+              return [notePath, null]
+          }
+          return [notePath, noteContents]
+      })
   );
-  return Object.fromEntries(noteEntries);
+  return Object.fromEntries(noteEntries.filter(arr => arr[1] != null));
 }
