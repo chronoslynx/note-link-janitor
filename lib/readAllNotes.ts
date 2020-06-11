@@ -5,7 +5,9 @@ import * as remark from "remark";
 import * as find from "unist-util-find";
 
 import getNoteLinks, { NoteLinkEntry } from "./getNoteLinks";
+import getNoteTags from "./getNoteTags";
 import processor from "./processor";
+import getReflectBlock from "./getReflectBlock";
 
 const missingTitleSentinel = { type: "missingTitle" } as const;
 
@@ -14,16 +16,18 @@ const headingFinder = processor().use(() => tree =>
 );
 interface Note {
   title: string;
+  tags: string[];
   links: NoteLinkEntry[];
   noteContents: string;
   parseTree: MDAST.Root;
 }
 
 function try_(promise) {
-   return promise.then(data => {
+  return promise
+    .then(data => {
       return [null, data];
-   })
-   .catch(err => [err]);
+    })
+    .catch(err => [err]);
 }
 
 async function readNote(notePath: string): Promise<Note> {
@@ -31,7 +35,7 @@ async function readNote(notePath: string): Promise<Note> {
     encoding: "utf-8"
   });
 
-  const parseTree = processor.parse(noteContents) as MDAST.Root;
+  let parseTree = processor.parse(noteContents) as MDAST.Root;
   const headingNode = await headingFinder.run(parseTree);
   if (headingNode.type === "missingTitle") {
     throw new Error(`${notePath} has no title`);
@@ -43,7 +47,19 @@ async function readNote(notePath: string): Promise<Note> {
     })
     .trimEnd();
 
-  return { title, links: getNoteLinks(parseTree), parseTree, noteContents };
+    const tags = getNoteTags(noteContents);
+    if (tags.includes("#journal")) {
+      const res = getReflectBlock(parseTree);
+      if (res.isPresent) {
+        parseTree = res.tree;
+      }
+    }
+  return { 
+    title, 
+    links: getNoteLinks(parseTree), 
+    parseTree, 
+    tags: tags,
+    noteContents };
 }
 
 export default async function readAllNotes(
@@ -57,15 +73,15 @@ export default async function readAllNotes(
     .map(entry => path.join(noteFolderPath, entry.name));
 
   const noteEntries = await Promise.all(
-      notePaths.map(async notePath => {
-          let err, noteContents;
-          [err, noteContents] = await try_(readNote(notePath))
-          if (err) {
-              console.log(`failed to read ${notePath}: ${err}`)
-              return [notePath, null]
-          }
-          return [notePath, noteContents]
-      })
+    notePaths.map(async notePath => {
+      let err, noteContents;
+      [err, noteContents] = await try_(readNote(notePath));
+      if (err) {
+        console.log(`failed to read ${notePath}: ${err}`);
+        return [notePath, null];
+      }
+      return [notePath, noteContents];
+    })
   );
   return Object.fromEntries(noteEntries.filter(arr => arr[1] != null));
 }
